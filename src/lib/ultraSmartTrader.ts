@@ -1,354 +1,244 @@
 import { ScalperPaperConfig } from './scalperPaperConfig';
 
-interface MarketMicrostructure {
-  bidAskSpread: number;
-  orderBookImbalance: number;
-  marketDepth: number;
-  priceImpact: number;
-}
-
-interface NeuralSignal {
-  strength: number;
-  confidence: number;
-  timeHorizon: number; // milliseconds
-  expectedReturn: number;
-  risk: number;
+interface UltraSmartConfig extends ScalperPaperConfig {
+  aiConfidenceThreshold: number;
+  whaleDetectionEnabled: boolean;
+  neuralLearningEnabled: boolean;
 }
 
 export class UltraSmartTrader {
-  private priceMemory: number[] = [];
-  private volumeMemory: number[] = [];
-  private tradeMemory: any[] = [];
-  private patternLibrary: Map<string, number> = new Map();
-  private neuralWeights: number[] = [];
-  private adaptiveLearning = true;
+  private confidence = 0;
+  private patterns: string[] = [];
+  private whaleActivity = { accumulation: 0, distribution: 0 };
   
-  // 🧠 الذكاء الاصطناعي المتقدم
-  constructor() {
-    this.initializeNeuralWeights();
-    this.loadPatternLibrary();
-  }
-
-  // 1. تحليل الميكروستركتشر للسوق (أعمق من العمق!)
-  analyzeMarketMicrostructure(tape: any, orderBook: any): MarketMicrostructure {
-    return {
-      bidAskSpread: this.calculateSpread(orderBook),
-      orderBookImbalance: this.calculateImbalance(orderBook),
-      marketDepth: this.calculateDepth(orderBook),
-      priceImpact: this.estimatePriceImpact(0.08, orderBook)
+  // 🧠 التحليل الذكي الفوري
+  analyzeMarket(currentPrice: number, tape: any, bounceZones: any[], candles: any[]) {
+    console.log('🚀 ULTRA SMART AI STARTING ANALYSIS...');
+    
+    // تحليل خطوط الدعم والمقاومة
+    const supportAnalysis = this.analyzeBounceZones(currentPrice, bounceZones);
+    
+    // كشف الحيتان
+    const whaleDetection = this.detectWhales(tape);
+    
+    // تحليل الأنماط
+    const patternSignals = this.detectPatterns(candles);
+    
+    // الشبكة العصبية
+    const neuralSignal = this.neuralPredict(currentPrice, patternSignals);
+    
+    // حساب الثقة الإجمالية
+    this.confidence = this.calculateTotalConfidence(
+      supportAnalysis, 
+      whaleDetection, 
+      patternSignals, 
+      neuralSignal
+    );
+    
+    const analysis = {
+      timestamp: new Date().toISOString(),
+      price: `$${(currentPrice/1000).toFixed(2)}K`,
+      confidence: `${(this.confidence * 100).toFixed(1)}%`,
+      patterns: this.patterns,
+      whaleActivity: whaleDetection,
+      supportLevel: supportAnalysis.nearestSupport,
+      neuralSignal: neuralSignal,
+      decision: this.makeDecision()
     };
+    
+    // عرض التحليل الذكي
+    this.displayAnalysis(analysis);
+    
+    return analysis;
   }
-
-  // 2. كشف الأنماط المخفية (Pattern Recognition AI)
-  detectHiddenPatterns(candles: any[], tape: any): string[] {
-    const patterns: string[] = [];
+  
+  // تحليل خطوط الارتداد
+  private analyzeBounceZones(price: number, zones: any[]) {
+    const nearestSupport = zones
+      .filter(z => z.price < price)
+      .sort((a, b) => Math.abs(price - a.price) - Math.abs(price - b.price))[0];
     
-    // كشف نماذج الشموع اليابانية المتقدمة
-    patterns.push(...this.detectCandlestickPatterns(candles));
+    const distanceToSupport = nearestSupport ? 
+      ((price - nearestSupport.price) / nearestSupport.price * 100) : 0;
     
-    // كشف أنماط الحجم السرية
-    patterns.push(...this.detectVolumePatterns(tape));
+    let supportStrength = 0;
+    if (nearestSupport?.touchCount > 15) supportStrength = 0.9;
+    else if (nearestSupport?.touchCount > 10) supportStrength = 0.7;
+    else supportStrength = 0.4;
     
-    // كشف دورات زمنية مخفية
-    patterns.push(...this.detectTimingCycles(candles));
-    
-    // كشف تلاعب الحيتان
-    patterns.push(...this.detectWhaleManipulation(tape));
-    
-    return patterns;
+    return { nearestSupport, distanceToSupport, strength: supportStrength };
   }
-
-  // 3. التنبؤ بالحركة التالية (Multi-Model Prediction)
-  predictNextMove(currentPrice: number, patterns: string[], microstructure: MarketMicrostructure): NeuralSignal[] {
-    const signals: NeuralSignal[] = [];
+  
+  // كشف تلاعب الحيتان
+  private detectWhales(tape: any) {
+    const largeBuys = tape?.buys || 0;
+    const largeSells = tape?.sells || 0;
+    const totalSol = tape?.totalSol || 0;
     
-    // نموذج الشبكة العصبية
-    const neuralSignal = this.neuralNetworkPredict(currentPrice, patterns);
-    signals.push(neuralSignal);
+    let whaleSignal = 0;
+    this.patterns = this.patterns.filter(p => !p.includes('WHALE'));
     
-    // نموذج الانحدار المتعدد
-    const regressionSignal = this.multipleRegressionPredict(microstructure);
-    signals.push(regressionSignal);
-    
-    // نموذج التعلم المعزز
-    const reinforcementSignal = this.reinforcementLearningPredict();
-    signals.push(reinforcementSignal);
-    
-    // نموذج المنطق الضبابي
-    const fuzzySignal = this.fuzzyLogicPredict(patterns, microstructure);
-    signals.push(fuzzySignal);
-    
-    return signals;
-  }
-
-  // 4. قرار التداول الذكي النهائي
-  makeUltraSmartDecision(
-    currentPrice: number, 
-    tape: any, 
-    orderBook: any, 
-    bounceZones: any[], 
-    candles: any[]
-  ) {
-    // تحليل الميكروستركتشر
-    const microstructure = this.analyzeMarketMicrostructure(tape, orderBook);
-    
-    // كشف الأنماط
-    const patterns = this.detectHiddenPatterns(candles, tape);
-    
-    // التنبؤات المتعددة
-    const predictions = this.predictNextMove(currentPrice, patterns, microstructure);
-    
-    // دمج الإشارات (Ensemble Method)
-    const ensembleSignal = this.ensemblePredict(predictions, bounceZones, currentPrice);
-    
-    // حساب المخاطرة المثلى (Kelly Criterion)
-    const optimalSize = this.kellyOptimalSize(ensembleSignal, 0.1);
-    
-    // توقيت الدخول الدقيق (Microsecond Precision)
-    const entryTiming = this.calculateOptimalEntryTiming(ensembleSignal, microstructure);
-    
-    // تعديل ديناميكي للأهداف
-    const dynamicTargets = this.calculateDynamicTargets(ensembleSignal, patterns, bounceZones);
-    
-    console.log('🤖 ULTRA SMART ANALYSIS:', {
-      price: currentPrice,
-      microstructure,
-      patterns,
-      ensembleConfidence: ensembleSignal.confidence,
-      optimalSize,
-      entryTiming: `${entryTiming}ms`,
-      targets: dynamicTargets
-    });
-
-    return {
-      shouldEnter: ensembleSignal.confidence > 0.85,
-      size: optimalSize,
-      entryDelay: entryTiming,
-      stopLoss: dynamicTargets.stopLoss,
-      takeProfit: dynamicTargets.takeProfit,
-      trailingStop: dynamicTargets.trailingStop,
-      reasoning: this.explainDecision(patterns, ensembleSignal)
-    };
-  }
-
-  // 5. الشبكة العصبية المخصصة
-  private neuralNetworkPredict(price: number, patterns: string[]): NeuralSignal {
-    // تشفير الأنماط إلى أرقام
-    const patternVector = this.encodePatternsToVector(patterns);
-    const priceVector = this.normalizePriceData([price, ...this.priceMemory.slice(-10)]);
-    
-    // الحساب عبر الطبقات
-    let layer1 = this.activateLayer(patternVector, this.neuralWeights.slice(0, 20));
-    let layer2 = this.activateLayer([...layer1, ...priceVector], this.neuralWeights.slice(20, 40));
-    let output = this.activateLayer(layer2, this.neuralWeights.slice(40, 50));
-    
-    return {
-      strength: output[0],
-      confidence: output[1],
-      timeHorizon: Math.max(output[2] * 60000, 5000), // 5s to 60s
-      expectedReturn: output[3] * 0.5, // max 50%
-      risk: Math.abs(output[4] * 0.2) // max 20%
-    };
-  }
-
-  // 6. كشف تلاعب الحيتان
-  private detectWhaleManipulation(tape: any): string[] {
-    const patterns: string[] = [];
-    const largeTrades = tape.recentTrades?.filter((t: any) => t.sol > 1.0) || [];
-    
-    if (largeTrades.length > 0) {
-      const buyPressure = largeTrades.filter((t: any) => t.is_buy).length;
-      const sellPressure = largeTrades.length - buyPressure;
-      
-      if (buyPressure > sellPressure * 2) patterns.push('WHALE_ACCUMULATION');
-      if (sellPressure > buyPressure * 2) patterns.push('WHALE_DISTRIBUTION');
-      
-      // كشف الغسيل التجاري
-      const suspiciousVolume = this.detectSuspiciousVolume(largeTrades);
-      if (suspiciousVolume) patterns.push('WASH_TRADING');
-      
-      // كشف نمط السحب والدفع
-      if (this.detectPumpAndDump(largeTrades)) patterns.push('PUMP_AND_DUMP');
+    if (totalSol > 0.5) {
+      if (largeBuys > largeSells * 1.5) {
+        this.patterns.push('WHALE_ACCUMULATION');
+        whaleSignal = 0.8;
+        this.whaleActivity.accumulation++;
+      } else if (largeSells > largeBuys * 1.5) {
+        this.patterns.push('WHALE_DISTRIBUTION');  
+        whaleSignal = -0.6;
+        this.whaleActivity.distribution++;
+      }
     }
     
-    return patterns;
+    return { signal: whaleSignal, volume: totalSol };
   }
-
-  // 7. معيار كيلي لحجم المركز الأمثل
-  private kellyOptimalSize(signal: NeuralSignal, maxCapital: number): number {
-    const winProb = signal.confidence;
-    const avgWin = signal.expectedReturn;
-    const avgLoss = signal.risk;
-    
-    // Kelly = (bp - q) / b
-    // حيث b = avg win / avg loss, p = win probability, q = 1-p
-    const b = avgWin / avgLoss;
-    const kelly = (b * winProb - (1 - winProb)) / b;
-    
-    // تحديد الحجم بـ 25% من Kelly لتجنب الإفراط
-    const safeFraction = Math.max(Math.min(kelly * 0.25, 0.8), 0.1);
-    
-    return maxCapital * safeFraction;
-  }
-
-  // 8. توقيت الدخول بدقة المايكروثانية
-  private calculateOptimalEntryTiming(signal: NeuralSignal, micro: MarketMicrostructure): number {
-    let delay = 0;
-    
-    // إذا كان السبريد كبير، انتظر تحسنه
-    if (micro.bidAskSpread > 0.02) delay += 2000;
-    
-    // إذا كان عدم التوازن قوي، انتظر استقرار
-    if (Math.abs(micro.orderBookImbalance) > 0.7) delay += 1000;
-    
-    // إذا كان التأثير السعري كبير، انتظر سيولة أفضل
-    if (micro.priceImpact > 0.03) delay += 3000;
-    
-    // تعديل حسب قوة الإشارة
-    if (signal.confidence > 0.95) delay *= 0.5; // دخول أسرع للإشارات القوية
-    
-    return Math.min(delay, 10000); // حد أقصى 10 ثواني
-  }
-
-  // 9. أهداف ديناميكية متكيفة
-  private calculateDynamicTargets(signal: NeuralSignal, patterns: string[], bounceZones: any[]) {
-    let baseTakeProfit = signal.expectedReturn;
-    let baseStopLoss = signal.risk;
-    
-    // تعديل حسب الأنماط المكتشفة
-    if (patterns.includes('STRONG_BREAKOUT')) baseTakeProfit *= 1.5;
-    if (patterns.includes('WHALE_ACCUMULATION')) baseTakeProfit *= 1.3;
-    if (patterns.includes('PUMP_AND_DUMP')) {
-      baseTakeProfit *= 0.7; // هدف أقل للخروج السريع
-      baseStopLoss *= 0.5; // وقف خسارة أضيق
-    }
-    
-    // استخدام خطوط الدعم/المقاومة
-    const nearestResistance = this.findNearestResistance(bounceZones);
-    const nearestSupport = this.findNearestSupport(bounceZones);
-    
-    return {
-      takeProfit: Math.min(baseTakeProfit * 100, nearestResistance || 50),
-      stopLoss: Math.max(baseStopLoss * 100, nearestSupport || 3),
-      trailingStop: signal.confidence > 0.9 ? baseTakeProfit * 0.3 : 0
-    };
-  }
-
-  // 10. تحديث الأوزان العصبية (التعلم المستمر)
-  updateNeuralWeights(actualResult: number, predictedResult: number) {
-    if (!this.adaptiveLearning) return;
-    
-    const error = actualResult - predictedResult;
-    const learningRate = 0.001;
-    
-    // تحديث الأوزان بناءً على الخطأ
-    for (let i = 0; i < this.neuralWeights.length; i++) {
-      this.neuralWeights[i] += learningRate * error * Math.random();
-    }
-  }
-
-  // مساعدات إضافية
-  private initializeNeuralWeights() {
-    this.neuralWeights = Array.from({length: 50}, () => Math.random() * 2 - 1);
-  }
-
-  private loadPatternLibrary() {
-    // مكتبة الأنماط المعروفة وقوتها
-    this.patternLibrary.set('DOJI', 0.6);
-    this.patternLibrary.set('HAMMER', 0.8);
-    this.patternLibrary.set('SHOOTING_STAR', -0.7);
-    this.patternLibrary.set('ENGULFING_BULL', 0.9);
-    this.patternLibrary.set('WHALE_ACCUMULATION', 0.85);
-    // ... المزيد من الأنماط
-  }
-
-  private detectCandlestickPatterns(candles: any[]): string[] {
-    const patterns: string[] = [];
-    if (candles.length < 3) return patterns;
+  
+  // كشف الأنماط
+  private detectPatterns(candles: any[]) {
+    if (candles.length < 3) return 0.5;
     
     const last = candles[candles.length - 1];
     const prev = candles[candles.length - 2];
     
-    // دوجي
-    if (Math.abs(last.close - last.open) / (last.high - last.low) < 0.1) {
-      patterns.push('DOJI');
-    }
+    let patternStrength = 0.5;
+    this.patterns = this.patterns.filter(p => !p.includes('CANDLE'));
     
-    // مطرقة
-    if (last.close > last.open && 
-        (last.open - last.low) > 2 * (last.close - last.open) &&
-        (last.high - last.close) < 0.1 * (last.close - last.open)) {
-      patterns.push('HAMMER');
+    // مطرقة صاعدة
+    const bodySize = Math.abs(last.close - last.open);
+    const lowerShadow = last.open - last.low;
+    const upperShadow = last.high - last.close;
+    
+    if (lowerShadow > bodySize * 2 && upperShadow < bodySize * 0.5 && last.close > last.open) {
+      this.patterns.push('HAMMER_BULLISH');
+      patternStrength = 0.8;
     }
     
     // ابتلاع صاعد
     if (last.close > last.open && prev.close < prev.open &&
         last.open < prev.close && last.close > prev.open) {
-      patterns.push('ENGULFING_BULL');
+      this.patterns.push('ENGULFING_BULLISH');
+      patternStrength = 0.85;
     }
     
-    return patterns;
-  }
-
-  private explainDecision(patterns: string[], signal: NeuralSignal): string {
-    let explanation = `AI Confidence: ${(signal.confidence * 100).toFixed(1)}% | `;
-    explanation += `Expected Return: ${(signal.expectedReturn * 100).toFixed(1)}% | `;
-    explanation += `Patterns: ${patterns.join(', ') || 'None'} | `;
-    explanation += `Time Horizon: ${(signal.timeHorizon / 1000).toFixed(1)}s`;
-    
-    return explanation;
-  }
-
-  // باقي المساعدات...
-  private calculateSpread(orderBook: any): number { return 0.01; }
-  private calculateImbalance(orderBook: any): number { return 0; }
-  private calculateDepth(orderBook: any): number { return 1; }
-  private estimatePriceImpact(size: number, orderBook: any): number { return size * 0.002; }
-  private multipleRegressionPredict(micro: MarketMicrostructure): NeuralSignal {
-    return { strength: 0.5, confidence: 0.6, timeHorizon: 30000, expectedReturn: 0.1, risk: 0.05 };
-  }
-  private reinforcementLearningPredict(): NeuralSignal {
-    return { strength: 0.4, confidence: 0.7, timeHorizon: 45000, expectedReturn: 0.12, risk: 0.06 };
-  }
-  private fuzzyLogicPredict(patterns: string[], micro: MarketMicrostructure): NeuralSignal {
-    return { strength: 0.6, confidence: 0.75, timeHorizon: 20000, expectedReturn: 0.15, risk: 0.04 };
-  }
-  private ensemblePredict(signals: NeuralSignal[], bounceZones: any[], price: number): NeuralSignal {
-    const avgConfidence = signals.reduce((sum, s) => sum + s.confidence, 0) / signals.length;
-    const avgReturn = signals.reduce((sum, s) => sum + s.expectedReturn, 0) / signals.length;
-    const avgRisk = signals.reduce((sum, s) => sum + s.risk, 0) / signals.length;
-    
-    return {
-      strength: avgConfidence,
-      confidence: avgConfidence * 1.1, // تعزيز الثقة للإجماع
-      timeHorizon: 30000,
-      expectedReturn: avgReturn,
-      risk: avgRisk
-    };
-  }
-  private encodePatternsToVector(patterns: string[]): number[] {
-    return Array.from({length: 10}, (_, i) => patterns.includes(`PATTERN_${i}`) ? 1 : 0);
-  }
-  private normalizePriceData(prices: number[]): number[] {
-    const max = Math.max(...prices);
-    const min = Math.min(...prices);
-    return prices.map(p => (p - min) / (max - min));
-  }
-  private activateLayer(inputs: number[], weights: number[]): number[] {
-    const outputs: number[] = [];
-    for (let i = 0; i < Math.min(weights.length, 5); i++) {
-      const sum = inputs.reduce((acc, input, idx) => acc + input * (weights[idx] || 0), 0);
-      outputs.push(Math.tanh(sum)); // تفعيل tanh
+    // دوجي (تردد)
+    if (bodySize / (last.high - last.low) < 0.1) {
+      this.patterns.push('DOJI_INDECISION');
+      patternStrength = 0.4;
     }
-    return outputs;
+    
+    return patternStrength;
   }
-  private detectVolumePatterns(tape: any): string[] { return []; }
-  private detectTimingCycles(candles: any[]): string[] { return []; }
-  private detectSuspiciousVolume(trades: any[]): boolean { return false; }
-  private detectPumpAndDump(trades: any[]): boolean { return false; }
-  private findNearestResistance(bounceZones: any[]): number | null { return null; }
-  private findNearestSupport(bounceZones: any[]): number | null { return null; }
+  
+  // الشبكة العصبية المبسطة
+  private neuralPredict(price: number, patternSignal: number) {
+    // محاكاة شبكة عصبية مبسطة
+    const priceVelocity = this.calculatePriceVelocity();
+    const volumeMomentum = this.calculateVolumeMomentum();
+    
+    const input = [
+      price / 10000, // تطبيع السعر
+      patternSignal,
+      priceVelocity,
+      volumeMomentum,
+      this.patterns.length / 5 // كثافة الأنماط
+    ];
+    
+    // طبقة واحدة مبسطة
+    const weights = [0.3, 0.4, 0.2, 0.1, 0.15];
+    const neuralOutput = input.reduce((sum, val, i) => sum + val * weights[i], 0);
+    
+    return Math.max(0, Math.min(1, neuralOutput));
+  }
+  
+  // حساب الثقة الإجمالية
+  private calculateTotalConfidence(support: any, whale: any, pattern: number, neural: number) {
+    let confidence = 0;
+    
+    // وزن تحليل الدعم (30%)
+    confidence += support.strength * 0.3;
+    
+    // وزن تحليل الحيتان (25%)
+    confidence += Math.max(0, whale.signal) * 0.25;
+    
+    // وزن الأنماط (25%)  
+    confidence += pattern * 0.25;
+    
+    // وزن الشبكة العصبية (20%)
+    confidence += neural * 0.2;
+    
+    return Math.max(0, Math.min(1, confidence));
+  }
+  
+  // قرار التداول
+  private makeDecision() {
+    if (this.confidence > 0.85) {
+      return {
+        action: 'STRONG_BUY',
+        size: 0.075, // 75% من الرأسمال
+        reasoning: 'High AI confidence with strong bullish signals'
+      };
+    } else if (this.confidence > 0.7) {
+      return {
+        action: 'BUY', 
+        size: 0.06,
+        reasoning: 'Moderate confidence, reduced position size'
+      };
+    } else if (this.confidence < 0.3) {
+      return {
+        action: 'AVOID',
+        size: 0,
+        reasoning: 'Low confidence, bearish signals detected'
+      };
+    } else {
+      return {
+        action: 'WATCH',
+        size: 0,
+        reasoning: 'Waiting for clearer signals'
+      };
+    }
+  }
+  
+  // عرض التحليل
+  private displayAnalysis(analysis: any) {
+    console.log('\n🤖 ═══════ ULTRA SMART AI ANALYSIS ═══════');
+    console.log(`📊 Price: ${analysis.price} | Confidence: ${analysis.confidence}`);
+    console.log(`🔍 Patterns: ${analysis.patterns.join(', ') || 'None detected'}`);
+    console.log(`🐋 Whale Activity: ${JSON.stringify(analysis.whaleActivity)}`);
+    console.log(`📈 Neural Signal: ${(analysis.neuralSignal * 100).toFixed(1)}%`);
+    console.log(`⚡ Decision: ${analysis.decision.action} - ${analysis.decision.reasoning}`);
+    if (analysis.decision.size > 0) {
+      console.log(`💰 Position Size: ${analysis.decision.size} SOL`);
+    }
+    console.log('═══════════════════════════════════════\n');
+  }
+  
+  // مساعدات
+  private calculatePriceVelocity(): number {
+    // محاكاة حساب سرعة السعر
+    return Math.random() * 0.1 - 0.05;
+  }
+  
+  private calculateVolumeMomentum(): number {
+    // محاكاة حساب زخم الحجم  
+    return Math.random() * 0.2;
+  }
 }
 
-// تصدير البوت الذكي
+// تصدير البوت
 export const ultraSmartTrader = new UltraSmartTrader();
+
+// دمج مع نظام السكالبر الموجود
+export function createUltraSmartConfig(): UltraSmartConfig {
+  return {
+    ...ScalperPaperConfig,
+    catalystMinSol: 0.08,
+    dipMinPct: 1,
+    takeProfitPct: 15,
+    minOrderBookSellSolForStop: 0.1,
+    realSlippagePct: 1,
+    reentryCooldownMs: 15000,
+    aiConfidenceThreshold: 0.75,
+    whaleDetectionEnabled: true,
+    neuralLearningEnabled: true
+  };
+}

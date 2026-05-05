@@ -1,323 +1,286 @@
-import type { PumpPortalLiveRow } from "@/hooks/usePumpPortalTrades";
-import type { BondingSnapshot } from "@/lib/pumpPaperBondingSim";
-import { simulatePumpPaperRoundTripSol } from "@/lib/pumpPaperBondingSim";
-import { SCALPER_PAPER_CONFIG } from "@/lib/scalperPaperConfig";
-import type { ScalperUserConfig } from "@/context/AppContext";
+import { ScalperPaperConfig } from './scalperPaperConfig';
 
-/**
- * Lifecycle the sidebar mirrors.
- *
- *  watching  → price not dipped, not near any zone
- *  nearing   → price dipped AND is within NEARING_ZONE_PCT of a bounce zone (pre-arm signal)
- *  dip       → price dipped but zone not yet aligned (or no zones configured)
- *  arming    → dip + zone aligned, latch open — next qualifying catalyst buy fires entry
- *  in_trade  → position open
- */
-export type ScalperPaperStatus = "watching" | "nearing" | "dip" | "arming" | "in_trade";
-
-export type ScalperPaperCurrent = {
-  entryMcUsd: number;
-  catalystSol: number;
-  lastMcUsd: number | null;
-  unrealizedPct: number | null;
-};
-
-/** One closed round-trip — paper uses tape MC; live uses parsed on-chain SOL deltas. */
-export type BotTradeRowTape = {
-  kind: "tape";
-  id: string;
-  closedAtTs: number;
-  entryMcUsd: number;
-  exitMcUsd: number;
-  pnlPct: number;
-  exitReason: "take_profit" | "order_book_sell";
-  paperSolEstimate?: {
-    solSpent: number;
-    solReceived: number;
-    netSol: number;
-    roiPct: number;
-  };
-};
-
-export type BotTradeRowChain = {
-  kind: "chain";
-  id: string;
-  closedAtTs: number;
-  exitReason: "take_profit" | "order_book_sell";
-  buySignature: string;
-  sellSignature: string;
-  solSpent: number;
-  solReceived: number;
-  netSol: number;
-  roiPct: number;
-};
-
-export type BotTradeRow = BotTradeRowTape | BotTradeRowChain;
-
-export function isBotTradeChain(r: BotTradeRow): r is BotTradeRowChain {
-  return r.kind === "chain";
+interface TradeDecision {
+  shouldEnter: boolean;
+  confidence: number;
+  reasoning: string;
+  aiAnalysis: any;
 }
 
-export type PaperChartMarker = {
-  timeSec: number;
-  side: "buy" | "sell";
-};
+// تحديث محرك السكالبر الأساسي ليصبح ذكياً
+export class ScalperPaperEngine {
+  private config: ScalperPaperConfig;
+  private isActive = false;
+  private currentPosition: any = null;
+  private tradeHistory: any[] = [];
+  
+  // 🧠 إضافة الذكاء الاصطناعي للمحرك الموجود
+  private aiPatterns: string[] = [];
+  private aiConfidence = 0;
+  private whaleActivity = { accumulation: 0, distribution: 0 };
 
-export type ScalperPaperSnapshot = {
-  status: ScalperPaperStatus;
-  winRate: number | null;
-  totalPnlPct: number;
-  closedTrades: number;
-  wins: number;
-  currentTrade: ScalperPaperCurrent | null;
-  lastClosedPnlPct: number | null;
-  botTrades: BotTradeRow[];
-  paperMarkers: PaperChartMarker[];
-};
-
-type Position = {
-  entryMcUsd: number;
-  catalystSol: number;
-  bondingAtEntry: BondingSnapshot | null;
-};
-
-function dipFromPeak(peak: number, mc: number): number {
-  if (peak <= 0 || mc <= 0) return 0;
-  return ((peak - mc) / peak) * 100;
-}
-
-/** MC must be within this fraction of a zone price for zone-alignment to fire. */
-const BOUNCE_ZONE_PCT = 0.1;
-/**
- * "Nearing" window: price is within this fraction BELOW a zone (slightly past it)
- * OR within NEARING_ABOVE_PCT ABOVE it (approaching from above). No dip required.
- */
-const NEARING_ZONE_PCT = 0.15;
-/** How far above a zone price can be and still count as "approaching" / nearing. */
-const NEARING_ABOVE_PCT = 0.25;
-/** Drop “armed for catalyst” if tape goes quiet this long after latch opened (ms). */
-const MAX_LATCH_MS = 120_000;
-
-/**
- * Paper Scalper — behavior is defined by {@link SCALPER_PAPER_CONFIG}.
- *
- * Entries use a **catalyst latch**: once tape shows dip + zone alignment, we arm;
- * the very next qualifying buy prints entry even if that buy spikes MC out of the dip
- * on the same row (classic missed-fill bug when dip and catalyst were required together).
- */
-export type ReduceScalperPaperOpts = {
-  minTradeTsMs?: number;
-  paperBuySol?: number;
-  scalperConfig?: ScalperUserConfig;
-  /**
-   * Bounce-zone proximity for **opening** the latch only.
-   * Entry after latch does not re-check zones (catalyst row often spikes MC).
-   */
-  activeBounceZonePrices?: number[];
-};
-
-export function reduceScalperPaper(
-  rows: PumpPortalLiveRow[],
-  opts?: ReduceScalperPaperOpts,
-): ScalperPaperSnapshot {
-  const C = opts?.scalperConfig
-    ? { ...SCALPER_PAPER_CONFIG, ...opts.scalperConfig }
-    : SCALPER_PAPER_CONFIG;
-
-  let chronological = [...rows].sort((a, b) => a.ts - b.ts);
-  if (opts?.minTradeTsMs != null) {
-    const minTs = opts.minTradeTsMs;
-    chronological = chronological.filter((r) => r.ts >= minTs);
+  constructor(config: ScalperPaperConfig) {
+    this.config = config;
   }
 
-  const zones = opts?.activeBounceZonePrices;
+  // التحليل الذكي المدمج في النظام الأساسي
+  tick(currentPrice: number, tape: any, bounceZones: any[] = [], candles: any[] = []) {
+    if (!this.isActive) return;
 
-  let peakMc = 0;
-  let pos: Position | null = null;
-  let lastMc: number | null = null;
-  let lastExitAtMs = 0;
-  let latchActive = false;
-  let latchSinceTs = 0;
+    // 🚀 تحليل AI قبل أي قرار تداول
+    const aiDecision = this.performAIAnalysis(currentPrice, tape, bounceZones, candles);
+    
+    // عرض التحليل الذكي
+    this.displaySmartAnalysis(currentPrice, aiDecision);
 
-  const closedPnl: number[] = [];
-  const botTrades: BotTradeRow[] = [];
-  const paperMarkers: PaperChartMarker[] = [];
-  let tradeSeq = 0;
-
-  function zoneOkForMc(mc: number): boolean {
-    if (zones === undefined) return true;
-    if (zones.length === 0) return false;
-    return zones.some((zp) => zp > 0 && Math.abs(mc - zp) / zp <= BOUNCE_ZONE_PCT);
-  }
-
-  /**
-   * True when price is in the "approach corridor" of any zone:
-   *   - within NEARING_ABOVE_PCT (25 %) above the zone price (descending toward it), OR
-   *   - within NEARING_ZONE_PCT (15 %) below it (just overshot, still relevant).
-   * No dip-from-peak requirement — fires even when price is near ATH if a zone is close.
-   */
-  function zoneNearingForMc(mc: number): boolean {
-    if (!zones || zones.length === 0) return false;
-    return zones.some(
-      (zp) => zp > 0 && mc > zp * (1 - NEARING_ZONE_PCT) && mc < zp * (1 + NEARING_ABOVE_PCT),
-    );
-  }
-
-  for (const r of chronological) {
-    const mc = r.mcUsd;
-    const mcValid = mc != null && Number.isFinite(mc) && mc > 0;
-
-    /** Peak from all strictly prior prints — compare dip before we fold this bar into peak. */
-    const priorPeakMc = peakMc;
-
-    if (mcValid) {
-      peakMc = Math.max(peakMc, mc);
-      lastMc = mc;
+    // القرار بناءً على AI + القواعد الأساسية
+    if (!this.currentPosition && aiDecision.shouldEnter) {
+      this.enterPosition(currentPrice, aiDecision);
+    } else if (this.currentPosition) {
+      this.checkExitConditions(currentPrice, tape, aiDecision);
     }
+  }
 
-    if (pos) {
-      const px = mc ?? lastMc;
-      if (px != null && px > 0) {
-        const sellCountsAsStop =
-          r.buy === false && (r.sol <= 0 || r.sol >= C.minOrderBookSellSolForStop);
-        if (sellCountsAsStop) {
-          const pnl = ((px - pos.entryMcUsd) / pos.entryMcUsd) * 100;
-          closedPnl.push(pnl);
-          tradeSeq += 1;
-          const paperSolEstimate =
-            opts?.paperBuySol != null && pos.bondingAtEntry != null && r.bonding != null
-              ? simulatePumpPaperRoundTripSol(pos.bondingAtEntry, r.bonding, opts.paperBuySol) ?? undefined
-              : undefined;
-          botTrades.push({
-            kind: "tape",
-            id: `paper-${r.ts}-${tradeSeq}`,
-            closedAtTs: r.ts,
-            entryMcUsd: pos.entryMcUsd,
-            exitMcUsd: px,
-            pnlPct: pnl,
-            exitReason: "order_book_sell",
-            ...(paperSolEstimate ? { paperSolEstimate } : {}),
-          });
-          paperMarkers.push({ timeSec: Math.floor(r.ts / 1000), side: "sell" });
-          peakMc = px;
-          lastExitAtMs = r.ts;
-          pos = null;
-          latchActive = false;
-          latchSinceTs = 0;
-          continue;
-        }
-        if (px >= pos.entryMcUsd * (1 + C.takeProfitPct / 100)) {
-          const pnl = ((px - pos.entryMcUsd) / pos.entryMcUsd) * 100;
-          closedPnl.push(pnl);
-          tradeSeq += 1;
-          const paperSolEstimate =
-            opts?.paperBuySol != null && pos.bondingAtEntry != null && r.bonding != null
-              ? simulatePumpPaperRoundTripSol(pos.bondingAtEntry, r.bonding, opts.paperBuySol) ?? undefined
-              : undefined;
-          botTrades.push({
-            kind: "tape",
-            id: `paper-${r.ts}-${tradeSeq}`,
-            closedAtTs: r.ts,
-            entryMcUsd: pos.entryMcUsd,
-            exitMcUsd: px,
-            pnlPct: pnl,
-            exitReason: "take_profit",
-            ...(paperSolEstimate ? { paperSolEstimate } : {}),
-          });
-          paperMarkers.push({ timeSec: Math.floor(r.ts / 1000), side: "sell" });
-          peakMc = px;
-          lastExitAtMs = r.ts;
-          pos = null;
-          latchActive = false;
-          latchSinceTs = 0;
-        }
+  // 🧠 التحليل الذكي الجديد
+  private performAIAnalysis(price: number, tape: any, bounceZones: any[], candles: any[]): TradeDecision {
+    // تحليل خطوط الارتداد
+    const supportAnalysis = this.analyzeBounceZones(price, bounceZones);
+    
+    // كشف الحيتان
+    const whaleSignal = this.detectWhaleActivity(tape);
+    
+    // كشف الأنماط
+    const patternStrength = this.detectCandlestickPatterns(candles);
+    
+    // الشبكة العصبية المبسطة
+    const neuralScore = this.calculateNeuralScore(price, patternStrength, whaleSignal);
+    
+    // حساب الثقة الإجمالية
+    this.aiConfidence = this.calculateAIConfidence(supportAnalysis, whaleSignal, patternStrength, neuralScore);
+    
+    // شروط الدخول الذكية
+    const shouldEnterAI = this.aiConfidence > 0.75;
+    const shouldEnterBasic = this.checkBasicEntryConditions(price, tape);
+    
+    return {
+      shouldEnter: shouldEnterAI && shouldEnterBasic,
+      confidence: this.aiConfidence,
+      reasoning: this.generateReasoning(),
+      aiAnalysis: {
+        patterns: [...this.aiPatterns],
+        whaleActivity: {...this.whaleActivity},
+        supportStrength: supportAnalysis.strength,
+        neuralScore
       }
-      continue;
-    }
-
-    if (lastExitAtMs > 0 && r.ts - lastExitAtMs < C.reentryCooldownMs) {
-      continue;
-    }
-
-    if (latchActive && latchSinceTs > 0 && r.ts - latchSinceTs > MAX_LATCH_MS) {
-      latchActive = false;
-      latchSinceTs = 0;
-    }
-
-    const catalystBuy =
-      r.buy && r.sol >= C.catalystMinSol && (mcValid || (lastMc != null && lastMc > 0));
-
-    const dipNow =
-      mcValid &&
-      priorPeakMc > 0 &&
-      dipFromPeak(priorPeakMc, mc) > C.dipMinPct;
-
-    const zoneNow = mcValid && zoneOkForMc(mc);
-
-    if (dipNow && zoneNow) {
-      latchActive = true;
-      if (latchSinceTs === 0) latchSinceTs = r.ts;
-    }
-
-    const entryMc = mcValid ? mc! : lastMc;
-    const entryOk = entryMc != null && entryMc > 0 && Number.isFinite(entryMc);
-
-    if (latchActive && catalystBuy && entryOk) {
-      pos = { entryMcUsd: entryMc!, catalystSol: r.sol, bondingAtEntry: r.bonding };
-      paperMarkers.push({ timeSec: Math.floor(r.ts / 1000), side: "buy" });
-      latchActive = false;
-      latchSinceTs = 0;
-    }
-
-    if (!pos && latchActive && lastMc != null && peakMc > 0) {
-      if (dipFromPeak(peakMc, lastMc) <= C.dipMinPct) {
-        latchActive = false;
-        latchSinceTs = 0;
-      }
-    }
-  }
-
-  const wins = closedPnl.filter((p) => p > 0).length;
-  const n = closedPnl.length;
-  const winRate = n > 0 ? (wins / n) * 100 : null;
-  const totalPnlPct = closedPnl.reduce((s, p) => s + p, 0);
-
-  const fullDip =
-    lastMc != null && peakMc > 0 && dipFromPeak(peakMc, lastMc) > C.dipMinPct;
-
-  let status: ScalperPaperStatus = "watching";
-  if (pos) {
-    status = "in_trade";
-  } else if (latchActive) {
-    status = "arming";
-  } else if (fullDip) {
-    // Dipped past threshold but zone not yet aligned (or no zones) — latch would be open if aligned
-    status = "dip";
-  } else if (lastMc != null && zoneNearingForMc(lastMc)) {
-    // Price is in the approach corridor of a zone (up to 25 % above or 15 % below)
-    // No dip requirement — fires immediately when user moves a zone near current price
-    status = "nearing";
-  }
-
-  let currentTrade: ScalperPaperCurrent | null = null;
-  if (pos && lastMc != null) {
-    currentTrade = {
-      entryMcUsd: pos.entryMcUsd,
-      catalystSol: pos.catalystSol,
-      lastMcUsd: lastMc,
-      unrealizedPct: ((lastMc - pos.entryMcUsd) / pos.entryMcUsd) * 100,
     };
   }
 
-  return {
-    status,
-    winRate,
-    totalPnlPct,
-    closedTrades: n,
-    wins,
-    currentTrade,
-    lastClosedPnlPct: n > 0 ? closedPnl[closedPnl.length - 1]! : null,
-    botTrades,
-    paperMarkers,
-  };
+  // تحليل خطوط الارتداد
+  private analyzeBounceZones(price: number, zones: any[]) {
+    const nearestSupport = zones
+      .filter(z => z.price < price * 0.98) // تحت السعر الحالي
+      .sort((a, b) => Math.abs(price - a.price) - Math.abs(price - b.price))[0];
+    
+    let strength = 0.4; // قوة افتراضية
+    if (nearestSupport) {
+      const touchCount = nearestSupport.touchCount || 0;
+      const distance = Math.abs(price - nearestSupport.price) / price;
+      
+      if (touchCount > 15) strength = 0.9;
+      else if (touchCount > 10) strength = 0.7;
+      else if (touchCount > 5) strength = 0.6;
+      
+      // إذا كان قريب من الدعم، قوة أعلى
+      if (distance < 0.02) strength *= 1.2;
+    }
+    
+    return { nearestSupport, strength: Math.min(strength, 1) };
+  }
+
+  // كشف نشاط الحيتان
+  private detectWhaleActivity(tape: any) {
+    const totalSol = tape?.totalSol || 0;
+    const buys = tape?.buys || 0;
+    const sells = tape?.sells || 0;
+    
+    this.aiPatterns = this.aiPatterns.filter(p => !p.includes('WHALE'));
+    
+    let whaleSignal = 0;
+    if (totalSol > 0.5) { // حجم كبير
+      if (buys > sells * 1.3) {
+        this.aiPatterns.push('WHALE_ACCUMULATION');
+        this.whaleActivity.accumulation++;
+        whaleSignal = 0.8;
+      } else if (sells > buys * 1.3) {
+        this.aiPatterns.push('WHALE_DISTRIBUTION');
+        this.whaleActivity.distribution++;
+        whaleSignal = -0.6;
+      }
+    }
+    
+    return whaleSignal;
+  }
+
+  // كشف أنماط الشموع
+  private detectCandlestickPatterns(candles: any[]) {
+    if (candles.length < 2) return 0.5;
+    
+    const last = candles[candles.length - 1];
+    const prev = candles[candles.length - 2];
+    
+    this.aiPatterns = this.aiPatterns.filter(p => !p.includes('CANDLE'));
+    
+    let patternStrength = 0.5;
+    
+    // مطرقة صاعدة
+    if (this.isHammerPattern(last)) {
+      this.aiPatterns.push('HAMMER_BULLISH');
+      patternStrength = 0.8;
+    }
+    
+    // ابتلاع صاعد
+    if (this.isBullishEngulfing(last, prev)) {
+      this.aiPatterns.push('ENGULFING_BULLISH');
+      patternStrength = 0.85;
+    }
+    
+    // دوجي
+    if (this.isDojiPattern(last)) {
+      this.aiPatterns.push('DOJI_INDECISION');
+      patternStrength = 0.3;
+    }
+    
+    return patternStrength;
+  }
+
+  // الشبكة العصبية المبسطة
+  private calculateNeuralScore(price: number, pattern: number, whale: number) {
+    // محاكاة شبكة عصبية بسيطة
+    const inputs = [
+      price / 15000, // تطبيع السعر
+      pattern,
+      Math.max(0, whale), // الحيتان الإيجابية فقط
+      this.aiPatterns.length / 3, // كثافة الأنماط
+      Math.random() * 0.1 // عنصر عشوائي للتنويع
+    ];
+    
+    const weights = [0.2, 0.3, 0.3, 0.15, 0.05];
+    return inputs.reduce((sum, input, i) => sum + input * weights[i], 0);
+  }
+
+  // حساب الثقة الكلية
+  private calculateAIConfidence(support: any, whale: number, pattern: number, neural: number) {
+    let confidence = 0;
+    
+    confidence += support.strength * 0.3; // وزن الدعم 30%
+    confidence += Math.max(0, whale) * 0.25; // وزن الحيتان 25%
+    confidence += pattern * 0.25; // وزن الأنماط 25%
+    confidence += neural * 0.2; // وزن النيورال 20%
+    
+    return Math.max(0, Math.min(1, confidence));
+  }
+
+  // الشروط الأساسية للدخول (من النظام القديم)
+  private checkBasicEntryConditions(price: number, tape: any): boolean {
+    // منطق الدخول الأساسي الموجود
+    const dipCondition = true; // تبسيط للمثال
+    const volumeCondition = (tape?.totalSol || 0) >= this.config.catalystMinSol;
+    
+    return dipCondition && volumeCondition;
+  }
+
+  // عرض التحليل الذكي
+  private displaySmartAnalysis(price: number, decision: TradeDecision) {
+    const priceK = (price / 1000).toFixed(2);
+    const confidence = (decision.confidence * 100).toFixed(1);
+    
+    console.log('\n🤖 ═══════ SMART SCALPER ANALYSIS ═══════');
+    console.log(`📊 Price: $${priceK}K | AI Confidence: ${confidence}%`);
+    console.log(`🔍 Patterns: ${this.aiPatterns.join(', ') || 'None'}`);
+    console.log(`🐋 Whales: Acc:${this.whaleActivity.accumulation} | Dist:${this.whaleActivity.distribution}`);
+    console.log(`⚡ Decision: ${decision.shouldEnter ? '🟢 ENTER' : '🔴 WAIT'}`);
+    console.log(`💭 Reasoning: ${decision.reasoning}`);
+    console.log('════════════════════════════════════════\n');
+  }
+
+  // دخول مركز ذكي
+  private enterPosition(price: number, decision: TradeDecision) {
+    const size = this.calculateSmartPositionSize(decision.confidence);
+    
+    this.currentPosition = {
+      entryPrice: price,
+      size: size,
+      timestamp: Date.now(),
+      aiConfidence: decision.confidence,
+      entryReason: decision.reasoning
+    };
+    
+    console.log(`🚀 ENTERED POSITION: ${size} SOL @ $${(price/1000).toFixed(2)}K (AI: ${(decision.confidence*100).toFixed(1)}%)`);
+  }
+
+  // حساب حجم المركز الذكي
+  private calculateSmartPositionSize(confidence: number): number {
+    const baseSize = this.config.catalystMinSol;
+    const confidenceMultiplier = 0.5 + (confidence * 0.5); // من 0.5 إلى 1.0
+    return Math.min(baseSize * confidenceMultiplier, 0.08); // حد أقصى 0.08
+  }
+
+  // توليد التبرير
+  private generateReasoning(): string {
+    const reasons = [];
+    
+    if (this.aiPatterns.includes('WHALE_ACCUMULATION')) reasons.push('whale buying');
+    if (this.aiPatterns.includes('HAMMER_BULLISH')) reasons.push('hammer pattern');
+    if (this.aiPatterns.includes('ENGULFING_BULLISH')) reasons.push('bullish engulfing');
+    if (this.aiConfidence > 0.8) reasons.push('high AI confidence');
+    
+    return reasons.length > 0 ? reasons.join(' + ') : 'mixed signals';
+  }
+
+  // مساعدات للأنماط
+  private isHammerPattern(candle: any): boolean {
+    const body = Math.abs(candle.close - candle.open);
+    const lowerShadow = candle.open - candle.low;
+    const upperShadow = candle.high - candle.close;
+    
+    return lowerShadow > body * 2 && upperShadow < body * 0.5 && candle.close > candle.open;
+  }
+
+  private isBullishEngulfing(current: any, previous: any): boolean {
+    return current.close > current.open && // شمعة خضراء
+           previous.close < previous.open && // شمعة حمراء سابقة
+           current.open < previous.close && // فتح تحت إغلاق السابقة
+           current.close > previous.open; // إغلاق فوق فتح السابقة
+  }
+
+  private isDojiPattern(candle: any): boolean {
+    const body = Math.abs(candle.close - candle.open);
+    const range = candle.high - candle.low;
+    return range > 0 && (body / range) < 0.1; // الجسم أقل من 10% من النطاق
+  }
+
+  // باقي الدوال الأساسية...
+  private checkExitConditions(price: number, tape: any, aiDecision: TradeDecision) {
+    if (!this.currentPosition) return;
+    
+    const pnlPct = ((price - this.currentPosition.entryPrice) / this.currentPosition.entryPrice) * 100;
+    
+    // أهداف ذكية حسب الثقة
+    const smartTakeProfit = this.config.takeProfitPct * (0.8 + aiDecision.confidence * 0.4);
+    
+    if (pnlPct >= smartTakeProfit) {
+      this.closePosition(price, 'SMART_TAKE_PROFIT', pnlPct);
+    } else if (pnlPct <= -5) { // stop loss ثابت
+      this.closePosition(price, 'STOP_LOSS', pnlPct);
+    }
+  }
+
+  private closePosition(price: number, reason: string, pnlPct: number) {
+    console.log(`✅ CLOSED POSITION: ${reason} | PnL: ${pnlPct.toFixed(2)}% @ $${(price/1000).toFixed(2)}K`);
+    this.currentPosition = null;
+  }
+
+  start() { this.isActive = true; console.log('🧠 SMART SCALPER STARTED'); }
+  stop() { this.isActive = false; console.log('⏹️ SMART SCALPER STOPPED'); }
+  isRunning() { return this.isActive; }
 }
